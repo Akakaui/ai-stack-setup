@@ -382,10 +382,19 @@ EOF
     pnpm install --silent 2>/dev/null || true
     cd ~
   fi
+
+  # Build the dev tools package if not already built
+  if [[ -d ~/open-design ]] && [[ ! -f ~/open-design/tools/dev/dist/index.mjs ]]; then
+    info "Building Open Design dev tools..."
+    cd ~/open-design
+    pnpm --filter @open-design/tools-dev build
+    cd ~
+  fi
+
   OD_API_TOKEN=$(openssl rand -hex 32)
   echo "OD_API_TOKEN=${OD_API_TOKEN}" > ~/open-design/.env
 
-  # ── Create separate data dir for open-design contex ────────
+  # ── Create separate data dir for open-design context ───────
   mkdir -p "$OPENDESIGN_DATA_DIR"
   log "Open Design ready (isolated data dir: $OPENDESIGN_DATA_DIR)"
 
