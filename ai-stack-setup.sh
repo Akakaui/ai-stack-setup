@@ -544,7 +544,7 @@ tmux send-keys -t ai-stack:1 \
 # ── Window 2: Open Design web app ────────────────────────────
 tmux new-window -t ai-stack:2 -n 'opendesign'
 tmux send-keys -t ai-stack:2 \
-  "cd ~/open-design && OD_API_TOKEN=${OD_API_TOKEN} pnpm tools-dev run web -- --port ${PORT_OPENDESIGN} --host 0.0.0.0" Enter
+  "cd ~/open-design && OD_API_TOKEN=${OD_API_TOKEN} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458" Enter
 
 # ── Window 3: Open Design opencode server (ISOLATED data dir)
 # This separate opencode server uses OPENDESIGN_DATA_DIR so
