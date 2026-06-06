@@ -59,7 +59,8 @@ Auto-detects Codespace environment. No systemd, no Nginx, no SSL. Just the servi
 ```bash
 bash ai-stack-setup.sh
 ```
-Walks you through domain selection with prompts.
+Walks you through domain selection with prompts. **You will be asked to choose a master password** — this single password protects all services (OpenChamber, OpenCode). Minimum 8 characters, must be confirmed.
+
 
 ### Restart existing stack (after reboot)
 
@@ -80,22 +81,22 @@ Detects `.ai-stack-installed` flag and skips straight to launch.
 | `--token <token>` | DuckDNS API token (omit for custom domains) |
 | `--email <email>` | Email address for SSL certificate notifications (Let's Encrypt) |
 | `--skip-duckdns` | No domain at all (local-only) |
-| `--non-interactive` | Auto-generate master password, skip all prompts |
+| `--non-interactive` | **Auto-generate** master password (skips password prompt — for CI/CD only) |
 | `--help` | Show help |
 
 ### Examples
 
 ```bash
-# DuckDNS (free domain) with your email for SSL notifications
+# DuckDNS (free domain) — you will be prompted to enter and confirm your password
 bash ai-stack-setup.sh --domain myproject --token abc123 --email you@example.com
 
-# DuckDNS non-interactive (CI/CD, auto-generates password)
+# DuckDNS non-interactive (CI/CD only — auto-generates password, prints it once)
 bash ai-stack-setup.sh --domain myproject --token abc123 --email you@example.com --non-interactive
 
-# Custom domain (point DNS A record first)
+# Custom domain (point DNS A record first) — password prompt required
 bash ai-stack-setup.sh --domain mystack.com --email you@example.com
 
-# No domain, local-only
+# No domain, local-only — password prompt required
 bash ai-stack-setup.sh --skip-duckdns
 
 # Interactive (prompts for domain, token, email, and password)
@@ -104,6 +105,10 @@ bash ai-stack-setup.sh
 # Just restart (install already done — skips straight to launch)
 bash ai-stack-setup.sh
 ```
+
+> **Note:** By default you will always be asked to **choose your own master password** and confirm it.
+> Only use `--non-interactive` in automated/CI environments where you can't type interactively.
+
 
 ---
 
@@ -347,6 +352,138 @@ bash ai-stack-setup.sh
 
 ---
 
+## Unified Desktop & VPS Apps
+
+One launcher that runs both OpenCode and OpenChamber for you — no manual configuration, no running two separate things. Just install and open.
+
+```
+ User opens the app
+        │
+        ▼
+ ┌──────────────────┐
+ │  AI Stack App    │  ← single download (PC) or single command (VPS)
+ │                  │
+ │  starts both:    │
+ │  ┌────────────┐  │
+ │  │  OpenCode  │  │  ← AI agent backend (port 4095, internal only)
+ │  └────────────┘  │
+ │  ┌────────────┐  │
+ │  │OpenChamber │  │  ← Web UI (port 3000, shown in window / browser)
+ │  └────────────┘  │
+ └──────────────────┘
+```
+
+---
+
+### 1. Unified PC Desktop App (Windows / macOS / Linux)
+
+#### How to run/test locally from source:
+1. Open your terminal and navigate to the `desktop` folder:
+   ```bash
+   cd desktop
+   ```
+2. Install the developer dependencies (Electron & build tools) and local packages:
+   ```bash
+   npm install
+   ```
+3. Start the application in development mode:
+   ```bash
+   npm start
+   ```
+
+#### How to package into a standalone installer (`.exe`):
+To generate a double-clickable standalone Windows installer (`.exe`) compiled with the official OpenChamber logo icon and setup with options to create a desktop shortcut icon:
+1. From the `desktop` directory, run the distribution script:
+   ```bash
+   npm run dist
+   ```
+2. Once the build completes, find your compiled installer under the `desktop/dist/` folder (e.g. `AI Stack Setup.exe`).
+3. You can copy this `.exe` file or distribute it to users. When run, the installer:
+   - Asks the user if they want to create a desktop shortcut icon.
+   - Installs the app to their system.
+   - Runs both OpenCode and OpenChamber in the background automatically.
+
+#### How to run via npm/npx (after publishing):
+Once you publish your package to the npm registry, users can run it instantly:
+- **No install (npx):**
+  ```bash
+  npx -y your-package-name
+  ```
+- **Global install:**
+  ```bash
+  npm install -g your-package-name
+  ai-stack
+  ```
+
+---
+
+### 2. Unified VPS Web App (Docker Deploy)
+
+The Docker packaging runs both services together in a single container. This is ideal for VPS deployments and accessing the stack on-the-go from your phone.
+
+#### How to build & push your own Docker image:
+1. Navigate to the `docker` directory of your repository.
+2. Build the Docker image:
+   ```bash
+   docker build -t yourusername/ai-stack:latest .
+   ```
+3. Push the image to a container registry (Docker Hub, GitHub Container Registry, etc.):
+   ```bash
+   docker push yourusername/ai-stack:latest
+   ```
+
+#### How to deploy on a VPS (for you and your users):
+To run the unified stack, create a `docker-compose.yml` on the VPS pointing to your image:
+
+```yaml
+version: '3.8'
+
+services:
+  ai-stack:
+    image: yourusername/ai-stack:latest
+    container_name: ai-stack
+    restart: always
+    ports:
+      - "3000:3000"   # OpenChamber web UI (open in browser)
+      - "4095:4095"   # OpenCode backend (internal use)
+    environment:
+      - STACK_DATA_DIR=/data
+      # - MASTER_PASS=your_custom_password # Uncomment and set a password to lock it down
+    volumes:
+      - ai-stack-data:/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: ai-stack-watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 3600 --cleanup --label-enable
+
+volumes:
+  ai-stack-data:
+    driver: local
+```
+
+Deploy it using a single command:
+```bash
+docker compose up -d
+```
+Then open `http://<your-vps-ip>:3000` in any browser on your computer, tablet, or phone.
+
+---
+
+### How Updates Work & Upstream Safety
+
+*   **PC Desktop (npx/npm):** The Electron app references `opencode-ai` and `@openchamber/web` as dependencies with the `"latest"` version constraint. Running `npx` pulls the newest packages from the registry automatically.
+*   **VPS / Docker:** The `docker-compose.yml` includes **Watchtower**. When you build and push a new Docker image containing the latest OpenCode/OpenChamber versions, Watchtower detects it, pulls it, and restarts the stack seamlessly in the background.
+*   **Upstream Safety:** The wrapper launcher calls standard startup commands like `opencode serve` and `openchamber serve` as separate processes. It does not interface with their internal code/API. Therefore, updates and new features added to OpenCode or OpenChamber are picked up automatically on startup without breaking the wrapper app.
+
+---
+
 ## License
 
 MIT
+

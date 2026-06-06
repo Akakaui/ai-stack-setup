@@ -124,16 +124,29 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
   if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
     MASTER_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c20)
     echo -e "  ${GREEN}Generated Master Password: ${BOLD}${MASTER_PASS}${NC}"
+    echo -e "  ${YELLOW}Save this — you will need it to log in to all services.${NC}"
   else
     echo ""
-    echo -e "  ${BOLD}One password protects all services.${NC}"
-    echo -e "  Press ENTER to auto-generate a strong password."
+    echo -e "  ${BOLD}One password protects all services (OpenChamber, OpenCode, etc).${NC}"
+    echo -e "  Choose something strong — this is the only password you will need."
     echo ""
-    read -rp "  Master password: " MASTER_PASS
-    if [[ -z "$MASTER_PASS" ]]; then
-      MASTER_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c20)
-      echo -e "  ${GREEN}Generated: ${BOLD}${MASTER_PASS}${NC}"
-    fi
+    # Read from /dev/tty so this works even when piped via: curl ... | bash
+    while true; do
+      read -rp "  Enter master password: " MASTER_PASS </dev/tty
+      if [[ -z "$MASTER_PASS" ]]; then
+        warn "Password cannot be empty. Please enter a password."
+      elif [[ "${#MASTER_PASS}" -lt 8 ]]; then
+        warn "Password too short — minimum 8 characters."
+      else
+        read -rp "  Confirm master password: " MASTER_PASS_CONFIRM </dev/tty
+        if [[ "$MASTER_PASS" == "$MASTER_PASS_CONFIRM" ]]; then
+          log "Password set."
+          break
+        else
+          warn "Passwords do not match. Try again."
+        fi
+      fi
+    done
   fi
 
   # ── Domain setup (VPS only) ─────────────────────────────────
@@ -189,7 +202,7 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
       echo -e "  2. Custom domain (e.g. mystack.com) — point its DNS A record to this server first"
       echo -e "  3. Skip — no public URL, local-only access"
       echo ""
-      read -rp "  Domain (Enter to skip): " DOMAIN_INPUT
+      read -rp "  Domain (Enter to skip): " DOMAIN_INPUT </dev/tty
 
       if [[ -n "$DOMAIN_INPUT" ]]; then
         # Check if it looks like a DuckDNS subdomain (no dots) or a real domain
@@ -197,7 +210,7 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
           DOMAIN_NAME="$DOMAIN_INPUT"
           info "Custom domain: $DOMAIN_NAME"
         else
-          read -rp "  DuckDNS token: " DUCKDNS_TOKEN
+          read -rp "  DuckDNS token: " DUCKDNS_TOKEN </dev/tty
           if [[ -n "$DUCKDNS_TOKEN" ]]; then
             DOMAIN_NAME="${DOMAIN_INPUT}.duckdns.org"
             DOMAIN_IS_DUCKDNS=true
@@ -222,7 +235,7 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
       if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
         CERT_EMAIL="admin@${DOMAIN_NAME}"
       else
-        read -rp "  Enter email for SSL certificate notifications (Enter for admin@${DOMAIN_NAME}): " CERT_EMAIL
+        read -rp "  Enter email for SSL certificate notifications (Enter for admin@${DOMAIN_NAME}): " CERT_EMAIL </dev/tty
         [[ -z "$CERT_EMAIL" ]] && CERT_EMAIL="admin@${DOMAIN_NAME}"
       fi
     fi
