@@ -75,29 +75,33 @@ Detects `.ai-stack-installed` flag and skips straight to launch.
 ### CLI Flags
 
 | Flag | Description |
-|------|-------------|
+|------|--------------|
 | `--domain <name>` | DuckDNS subdomain OR custom domain |
 | `--token <token>` | DuckDNS API token (omit for custom domains) |
+| `--email <email>` | Email address for SSL certificate notifications (Let's Encrypt) |
 | `--skip-duckdns` | No domain at all (local-only) |
-| `--non-interactive` | Auto-generate master password |
+| `--non-interactive` | Auto-generate master password, skip all prompts |
 | `--help` | Show help |
 
 ### Examples
 
 ```bash
-# DuckDNS (free domain)
-bash ai-stack-setup.sh --domain myproject --token abc123
+# DuckDNS (free domain) with your email for SSL notifications
+bash ai-stack-setup.sh --domain myproject --token abc123 --email you@example.com
+
+# DuckDNS non-interactive (CI/CD, auto-generates password)
+bash ai-stack-setup.sh --domain myproject --token abc123 --email you@example.com --non-interactive
 
 # Custom domain (point DNS A record first)
-bash ai-stack-setup.sh --domain mystack.com
+bash ai-stack-setup.sh --domain mystack.com --email you@example.com
 
 # No domain, local-only
 bash ai-stack-setup.sh --skip-duckdns
 
-# Interactive
+# Interactive (prompts for domain, token, email, and password)
 bash ai-stack-setup.sh
 
-# Just restart (install already done)
+# Just restart (install already done — skips straight to launch)
 bash ai-stack-setup.sh
 ```
 
