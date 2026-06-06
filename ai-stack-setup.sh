@@ -380,8 +380,6 @@ EOF
     cd ~/open-design
     corepack enable 2>/dev/null || true
     pnpm install --silent 2>/dev/null || true
-    info "Building Open Design..."
-    pnpm build 2>/dev/null || true
     cd ~
   fi
   OD_API_TOKEN=$(openssl rand -hex 32)
