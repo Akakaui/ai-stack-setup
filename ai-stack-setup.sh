@@ -358,7 +358,7 @@ EOF
   info "Installing Chrome for agent-browser..."
   agent-browser install --with-deps 2>/dev/null || true
   info "Installing agent-browser skill for OpenCode..."
-  npx skills add vercel-labs/agent-browser 2>/dev/null || true
+  npx skills add --yes vercel-labs/agent-browser </dev/null 2>/dev/null || true
   log "Agent-browser installed"
 
   # ── OpenChamber ────────────────────────────────────────────
@@ -519,6 +519,9 @@ for port in "$PORT_OPENCODE" "$PORT_OPENCHAMBER" "$PORT_OPENDESIGN" "$PORT_OPEND
     sleep 1
   done
 done
+
+# Update tmux environment PATH to inherit newly installed paths
+tmux set-environment -g PATH "$PATH" 2>/dev/null || true
 
 # Start tmux session
 tmux new-session -d -s ai-stack -n 'opencode'
