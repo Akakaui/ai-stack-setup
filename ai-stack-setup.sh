@@ -61,6 +61,7 @@ NON_INTERACTIVE=0
 OPT_DOMAIN=""
 OPT_TOKEN=""
 OPT_SKIP_DUCKDNS=0
+OPT_EMAIL=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,10 +71,13 @@ while [ $# -gt 0 ]; do
     --token) shift; OPT_TOKEN="$1" ;;
     --token=*) OPT_TOKEN="${1#--token=}" ;;
     --skip-duckdns) OPT_SKIP_DUCKDNS=1 ;;
+    --email) shift; OPT_EMAIL="$1" ;;
+    --email=*) OPT_EMAIL="${1#--email=}" ;;
     --help|-h)
       echo "Usage: bash ai-stack-setup.sh [options]"
       echo ""
       echo "  --domain <name> [--token <t>]  DuckDNS (foo + token) OR custom domain (mystack.com)"
+      echo "  --email <email>                Certbot email for SSL certificate notifications"
       echo "  --skip-duckdns                 No domain at all (local-only)"
       echo "  --non-interactive              Auto-generate password"
       echo "  --help                         Show this help"
@@ -117,14 +121,19 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
 
   # ── Master password ────────────────────────────────────────
   header "MASTER PASSWORD"
-  echo ""
-  echo -e "  ${BOLD}One password protects all services.${NC}"
-  echo -e "  Press ENTER to auto-generate a strong password."
-  echo ""
-  read -rp "  Master password: " MASTER_PASS
-  if [[ -z "$MASTER_PASS" ]]; then
+  if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
     MASTER_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c20)
-    echo -e "  ${GREEN}Generated: ${BOLD}${MASTER_PASS}${NC}"
+    echo -e "  ${GREEN}Generated Master Password: ${BOLD}${MASTER_PASS}${NC}"
+  else
+    echo ""
+    echo -e "  ${BOLD}One password protects all services.${NC}"
+    echo -e "  Press ENTER to auto-generate a strong password."
+    echo ""
+    read -rp "  Master password: " MASTER_PASS
+    if [[ -z "$MASTER_PASS" ]]; then
+      MASTER_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c20)
+      echo -e "  ${GREEN}Generated: ${BOLD}${MASTER_PASS}${NC}"
+    fi
   fi
 
   # ── Domain setup (VPS only) ─────────────────────────────────
@@ -134,11 +143,16 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
   #   3. None:    --skip-duckdns            → skip everything
   DOMAIN_NAME=""
   DOMAIN_IS_DUCKDNS=false
+  CERT_EMAIL=""
 
   if $IS_VPS && [[ "$OPT_SKIP_DUCKDNS" -eq 0 ]]; then
     # Mode 1: DuckDNS via CLI flags
     if [[ -n "$OPT_DOMAIN" && -n "$OPT_TOKEN" ]]; then
-      DOMAIN_NAME="${OPT_DOMAIN}.duckdns.org"
+      if [[ "$OPT_DOMAIN" == *.* ]]; then
+        DOMAIN_NAME="$OPT_DOMAIN"
+      else
+        DOMAIN_NAME="${OPT_DOMAIN}.duckdns.org"
+      fi
       DOMAIN_IS_DUCKDNS=true
       DUCKDNS_TOKEN="$OPT_TOKEN"
 
@@ -202,6 +216,18 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
     fi
   fi
 
+  if $IS_VPS && [[ -n "$DOMAIN_NAME" ]]; then
+    CERT_EMAIL="${OPT_EMAIL:-}"
+    if [[ -z "$CERT_EMAIL" ]]; then
+      if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+        CERT_EMAIL="admin@${DOMAIN_NAME}"
+      else
+        read -rp "  Enter email for SSL certificate notifications (Enter for admin@${DOMAIN_NAME}): " CERT_EMAIL
+        [[ -z "$CERT_EMAIL" ]] && CERT_EMAIL="admin@${DOMAIN_NAME}"
+      fi
+    fi
+  fi
+
   # Save all config
   cat > ~/.stack-passwords << EOF
 # AI Stack config — do not delete
@@ -216,6 +242,7 @@ PORT_BROWSER_DASH=${PORT_BROWSER_DASH}
 ENV_TYPE=${ENV_TYPE}
 DOMAIN_NAME=${DOMAIN_NAME}
 DOMAIN_IS_DUCKDNS=${DOMAIN_IS_DUCKDNS}
+CERT_EMAIL=${CERT_EMAIL}
 STACK_DATA_DIR=${STACK_DATA_DIR}
 OPENDESIGN_DATA_DIR=${OPENDESIGN_DATA_DIR}
 EOF
@@ -223,8 +250,13 @@ EOF
   log "Config saved to ~/.stack-passwords"
 
   # ── PATH persistence ───────────────────────────────────────
-  mkdir -p "$PNPM_HOME" "$HOME/.npm-global"
-  npm config set prefix "$HOME/.npm-global" 2>/dev/null || true
+  if [[ -n "${NVM_DIR:-}" || -f "$HOME/.nvm/nvm.sh" ]]; then
+    info "NVM detected — skipping custom npm-global prefix to avoid conflicts"
+    mkdir -p "$PNPM_HOME"
+  else
+    mkdir -p "$PNPM_HOME" "$HOME/.npm-global"
+    npm config set prefix "$HOME/.npm-global" 2>/dev/null || true
+  fi
   for line in \
     'export PNPM_HOME="$HOME/.local/share/pnpm"' \
     'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PNPM_HOME:$HOME/.local/bin/opencode:$PATH"'; do
@@ -298,6 +330,12 @@ EOF
 EOF
   log "OpenCode installed and configured"
 
+  # Ensure pnpm is installed globally in user-space
+  if ! command -v pnpm &>/dev/null; then
+    info "Installing pnpm..."
+    npm install -g pnpm --quiet 2>/dev/null || true
+  fi
+
   # ── Agent-Browser ──────────────────────────────────────────
   header "AGENT-BROWSER"
   if ! command -v agent-browser &>/dev/null; then
@@ -329,6 +367,8 @@ EOF
     cd ~/open-design
     corepack enable 2>/dev/null || true
     pnpm install --silent 2>/dev/null || true
+    info "Building Open Design..."
+    pnpm build 2>/dev/null || true
     cd ~
   fi
   OD_API_TOKEN=$(openssl rand -hex 32)
@@ -348,39 +388,48 @@ server {
     listen 80;
     server_name ${DOMAIN_NAME};
 
-    # OpenChamber (root)
-    location /chamber {
-        proxy_pass http://localhost:${PORT_OPENCHAMBER};
+    # OpenChamber (subpath redirection & routing)
+    location /chamber/ {
+        proxy_pass http://localhost:${PORT_OPENCHAMBER}/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
+    }
+    location /chamber {
+        return 301 \$scheme://\$http_host\$request_uri/;
     }
 
     # Open Design
-    location /design {
-        proxy_pass http://localhost:${PORT_OPENDESIGN};
+    location /design/ {
+        proxy_pass http://localhost:${PORT_OPENDESIGN}/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
+    location /design {
+        return 301 \$scheme://\$http_host\$request_uri/;
+    }
 
     # Agent-Browser Dashboard
-    location /agent {
-        proxy_pass http://localhost:${PORT_BROWSER_DASH};
+    location /agent/ {
+        proxy_pass http://localhost:${PORT_BROWSER_DASH}/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
+    }
+    location /agent {
+        return 301 \$scheme://\$http_host\$request_uri/;
     }
 
     # Agent-Browser Stream (WebSocket)
     location /stream {
-        proxy_pass http://localhost:${PORT_BROWSER_STREAM};
+        proxy_pass http://localhost:${PORT_BROWSER_STREAM}/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -407,7 +456,7 @@ NGINX
     # SSL via Let's Encrypt
     info "Getting SSL certificate for $DOMAIN_NAME..."
     sudo certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos \
-      --email "admin@${DOMAIN_NAME}" --redirect 2>/dev/null || \
+      --email "$CERT_EMAIL" --redirect 2>/dev/null || \
       warn "SSL cert failed — run: sudo certbot --nginx -d $DOMAIN_NAME"
     log "SSL configured"
   fi
@@ -450,7 +499,15 @@ if [[ "${ENV_TYPE:-}" == "vps" ]]; then
   sudo systemctl restart nginx 2>/dev/null || true
 fi
 
-sleep 2
+info "Waiting for ports to clear..."
+for port in "$PORT_OPENCODE" "$PORT_OPENCHAMBER" "$PORT_OPENDESIGN" "$PORT_OPENDESIGN_OC" "$PORT_BROWSER_STREAM" "$PORT_BROWSER_DASH"; do
+  for i in {1..10}; do
+    if ! ss -tln | grep -q -E ":$port( |$)"; then
+      break
+    fi
+    sleep 1
+  done
+done
 
 # Start tmux session
 tmux new-session -d -s ai-stack -n 'opencode'
@@ -460,6 +517,10 @@ tmux new-session -d -s ai-stack -n 'opencode'
 # here (via openchamber) stay in STACK_DATA_DIR.
 tmux send-keys -t ai-stack:0 \
   "mkdir -p ${STACK_DATA_DIR} && XDG_DATA_HOME=${STACK_DATA_DIR} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} opencode serve --port ${PORT_OPENCODE}" Enter
+
+# Wait for OpenCode server to initialize completely
+info "Waiting for OpenCode to start..."
+sleep 8
 
 # ── Window 1: OpenChamber (connects to stack opencode) ──────
 tmux new-window -t ai-stack:1 -n 'openchamber'
@@ -483,7 +544,7 @@ tmux send-keys -t ai-stack:3 \
 # Codespaces = headless only, VPS = headless by default
 tmux new-window -t ai-stack:4 -n 'browser'
 tmux send-keys -t ai-stack:4 \
-  "agent-browser close 2>/dev/null || true && sleep 1 && AGENT_BROWSER_STREAM_PORT=${PORT_BROWSER_STREAM} agent-browser open 'about:blank' --args '--no-sandbox,--disable-setuid-sandbox,--headless=new'" Enter
+  "agent-browser close 2>/dev/null || true && sleep 1 && AGENT_BROWSER_STREAM_PORT=${PORT_BROWSER_STREAM} AGENT_BROWSER_ARGS='--no-sandbox,--disable-setuid-sandbox,--headless=new' agent-browser open 'about:blank'" Enter
 
 # ── Window 5: Agent-Browser Dashboard ───────────────────────
 tmux new-window -t ai-stack:5 -n 'browser-dash'
@@ -501,7 +562,7 @@ if [[ "${ENV_TYPE:-}" == "vps" && -n "${DOMAIN_NAME:-}" ]]; then
   echo -e "  ${BOLD}OpenChamber${NC}    → https://${DOMAIN_NAME}/chamber"
   echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/design"
   echo -e "  ${BOLD}Agent-Browser${NC}  → https://${DOMAIN_NAME}/agent"
-  echo -e "  ${BOLD}Stream${NC}         → https://${DOMAIN_NAME}/stream"
+  echo -e "  ${BOLD}Stream${NC}         → wss://${DOMAIN_NAME}/stream"
   echo ""
   echo -e "  ${YELLOW}Save these links — they never change${NC}"
 else
