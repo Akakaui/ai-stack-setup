@@ -530,7 +530,7 @@ tmux new-session -d -s ai-stack -n 'opencode'
 # This server shares its DB with OpenChamber. Sessions created
 # here (via openchamber) stay in STACK_DATA_DIR.
 tmux send-keys -t ai-stack:0 \
-  "mkdir -p ${STACK_DATA_DIR} && XDG_DATA_HOME=${STACK_DATA_DIR} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} opencode serve --port ${PORT_OPENCODE}" Enter
+  "mkdir -p ${STACK_DATA_DIR} && XDG_DATA_HOME=${STACK_DATA_DIR} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} opencode serve --port ${PORT_OPENCODE}; read" Enter
 
 # Wait for OpenCode server to initialize completely
 info "Waiting for OpenCode to start..."
@@ -539,12 +539,12 @@ sleep 8
 # ── Window 1: OpenChamber (connects to stack opencode) ──────
 tmux new-window -t ai-stack:1 -n 'openchamber'
 tmux send-keys -t ai-stack:1 \
-  "OPENCODE_HOST=http://localhost:${PORT_OPENCODE} openchamber serve --port ${PORT_OPENCHAMBER} --host 0.0.0.0 --ui-password ${MASTER_PASS} --foreground" Enter
+  "OPENCODE_HOST=http://localhost:${PORT_OPENCODE} openchamber serve --port ${PORT_OPENCHAMBER} --host 0.0.0.0 --ui-password ${MASTER_PASS} --foreground; read" Enter
 
 # ── Window 2: Open Design web app ────────────────────────────
 tmux new-window -t ai-stack:2 -n 'opendesign'
 tmux send-keys -t ai-stack:2 \
-  "cd ~/open-design && OD_API_TOKEN=${OD_API_TOKEN} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458" Enter
+  "cd ~/open-design && OD_API_TOKEN=${OD_API_TOKEN} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458; read" Enter
 
 # ── Window 3: Open Design opencode server (ISOLATED data dir)
 # This separate opencode server uses OPENDESIGN_DATA_DIR so
@@ -552,18 +552,18 @@ tmux send-keys -t ai-stack:2 \
 # NEVER appear in OpenChamber.
 tmux new-window -t ai-stack:3 -n 'opencode-od'
 tmux send-keys -t ai-stack:3 \
-  "mkdir -p ${OPENDESIGN_DATA_DIR} && XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode serve --port ${PORT_OPENDESIGN_OC}" Enter
+  "mkdir -p ${OPENDESIGN_DATA_DIR} && XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode serve --port ${PORT_OPENDESIGN_OC}; read" Enter
 
 # ── Window 4: Agent-Browser ──────────────────────────────────
 # Codespaces = headless only, VPS = headless by default
 tmux new-window -t ai-stack:4 -n 'browser'
 tmux send-keys -t ai-stack:4 \
-  "agent-browser close 2>/dev/null || true && sleep 1 && AGENT_BROWSER_STREAM_PORT=${PORT_BROWSER_STREAM} AGENT_BROWSER_ARGS='--no-sandbox,--disable-setuid-sandbox,--headless=new' agent-browser open 'about:blank'" Enter
+  "agent-browser close 2>/dev/null || true && sleep 1 && AGENT_BROWSER_STREAM_PORT=${PORT_BROWSER_STREAM} AGENT_BROWSER_ARGS='--no-sandbox,--disable-setuid-sandbox,--headless=new' agent-browser open 'about:blank'; read" Enter
 
 # ── Window 5: Agent-Browser Dashboard ───────────────────────
 tmux new-window -t ai-stack:5 -n 'browser-dash'
 tmux send-keys -t ai-stack:5 \
-  "sleep 5 && agent-browser dashboard start --port ${PORT_BROWSER_DASH}" Enter
+  "sleep 5 && agent-browser dashboard start --port ${PORT_BROWSER_DASH}; read" Enter
 
 # ── Print access links ────────────────────────────────────────
 echo ""
