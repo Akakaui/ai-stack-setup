@@ -396,6 +396,9 @@ EOF
 
   # ── Create separate data dir for open-design context ───────
   mkdir -p "$OPENDESIGN_DATA_DIR"
+  mkdir -p "$OPENDESIGN_DATA_DIR/opencode"
+  cp ~/.config/opencode/opencode.json "$OPENDESIGN_DATA_DIR/opencode/opencode.json"
+  sed -i "s/\"port\": ${PORT_OPENCODE}/\"port\": ${PORT_OPENDESIGN_OC}/" "$OPENDESIGN_DATA_DIR/opencode/opencode.json"
   log "Open Design ready (isolated data dir: $OPENDESIGN_DATA_DIR)"
 
   # ── Nginx + SSL (VPS only, requires domain) ────────────────
@@ -561,7 +564,7 @@ tmux send-keys -t ai-stack:2 \
 # NEVER appear in OpenChamber.
 tmux new-window -t ai-stack:3 -n 'opencode-od'
 tmux send-keys -t ai-stack:3 \
-  "mkdir -p ${OPENDESIGN_DATA_DIR} && XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode serve --port ${PORT_OPENDESIGN_OC}; read" Enter
+  "mkdir -p ${OPENDESIGN_DATA_DIR} && export PATH=$HOME/.local/bin/opencode:$HOME/.npm-global/bin:$PATH && XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode serve --port ${PORT_OPENDESIGN_OC}; read" Enter
 
 # ── Window 4: Agent-Browser ──────────────────────────────────
 # Codespaces = headless only, VPS = headless by default

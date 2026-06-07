@@ -6,6 +6,27 @@ Works on GitHub Codespaces and Ubuntu VPS (22.04 / 24.04).
 
 ---
 
+## How to Install
+
+### Clone the repo
+
+```bash
+git clone https://github.com/Akakaui/ai-stack-setup.git
+cd ai-stack-setup
+bash ai-stack-setup.sh --skip-duckdns
+```
+
+### Or download just the script
+
+```bash
+curl -O https://raw.githubusercontent.com/Akakaui/ai-stack-setup/main/ai-stack-setup.sh
+bash ai-stack-setup.sh --skip-duckdns
+```
+
+See [Quick Start](#quick-start) for all options (DuckDNS, custom domain, etc).
+
+---
+
 ## What's Included
 
 | Service | Purpose | Default Port |
@@ -344,10 +365,8 @@ bash ai-stack-setup.sh
 | File | Purpose |
 |------|---------|
 | `ai-stack-setup.sh` | One-click install + launch script |
-| `session-export-2026-06-05.md` | First session export |
-| `session-export-2026-06-05-v2.md` | Updated session export with OD isolated DB |
-| `fullstack-production-skill.md` | Production deployment checklist skill |
-| `browsermate-prd.md` | BrowserMate product requirements |
+| `README.md` | Documentation |
+| `.gitignore` | Git ignore rules |
 | `assets/` | Screenshots |
 
 ---
