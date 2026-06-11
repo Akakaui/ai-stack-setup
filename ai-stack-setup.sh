@@ -62,6 +62,7 @@ OPT_DOMAIN=""
 OPT_TOKEN=""
 OPT_SKIP_DUCKDNS=0
 OPT_EMAIL=""
+OPT_PASSWORD=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,6 +74,8 @@ while [ $# -gt 0 ]; do
     --skip-duckdns) OPT_SKIP_DUCKDNS=1 ;;
     --email) shift; OPT_EMAIL="$1" ;;
     --email=*) OPT_EMAIL="${1#--email=}" ;;
+    --password) shift; OPT_PASSWORD="$1" ;;
+    --password=*) OPT_PASSWORD="${1#--password=}" ;;
     --help|-h)
       echo "Usage: bash ai-stack-setup.sh [options]"
       echo ""
@@ -80,6 +83,7 @@ while [ $# -gt 0 ]; do
       echo "  --email <email>                Certbot email for SSL certificate notifications"
       echo "  --skip-duckdns                 No domain at all (local-only)"
       echo "  --non-interactive              Auto-generate password"
+      echo "  --password <password>          Set a specific master password"
       echo "  --help                         Show this help"
       echo ""
       echo "Examples:"
@@ -107,7 +111,7 @@ OPENDESIGN_DATA_DIR="$HOME/open-design/.data"
 
 # ── PATH setup ────────────────────────────────────────────────
 export PNPM_HOME="$HOME/.local/share/pnpm"
-export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PNPM_HOME:$HOME/.local/bin/opencode:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PNPM_HOME:$HOME/.opencode/bin:$HOME/.local/bin/opencode:$PATH"
 
 INSTALL_DONE_FLAG="$HOME/.ai-stack-installed"
 
@@ -121,7 +125,10 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
 
   # ── Master password ────────────────────────────────────────
   header "MASTER PASSWORD"
-  if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+  if [[ -n "$OPT_PASSWORD" ]]; then
+    MASTER_PASS="$OPT_PASSWORD"
+    log "Using master password provided via CLI."
+  elif [[ "$NON_INTERACTIVE" -eq 1 ]]; then
     MASTER_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c20)
     echo -e "  ${GREEN}Generated Master Password: ${BOLD}${MASTER_PASS}${NC}"
     echo -e "  ${YELLOW}Save this — you will need it to log in to all services.${NC}"
@@ -272,7 +279,7 @@ EOF
   fi
   for line in \
     'export PNPM_HOME="$HOME/.local/share/pnpm"' \
-    'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PNPM_HOME:$HOME/.local/bin/opencode:$PATH"'; do
+    'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PNPM_HOME:$HOME/.opencode/bin:$HOME/.local/bin/opencode:$PATH"'; do
     grep -qxF "$line" ~/.bashrc 2>/dev/null || echo "$line" >> ~/.bashrc
   done
 
@@ -323,7 +330,7 @@ EOF
   if ! command -v opencode &>/dev/null; then
     info "Installing OpenCode..."
     curl -fsSL https://opencode.ai/install | bash 2>/dev/null || true
-    export PATH="$HOME/.local/bin/opencode:$PATH"
+    export PATH="$HOME/.opencode/bin:$PATH"
   fi
   mkdir -p ~/.config/opencode
   cat > ~/.config/opencode/opencode.json << EOF
@@ -391,6 +398,12 @@ EOF
     cd ~
   fi
 
+  # Build Open Design web app for production
+  info "Building Open Design web app for production (this may take a minute)..."
+  cd ~/open-design
+  pnpm --filter @open-design/web build
+  cd ~
+
   OD_API_TOKEN=$(openssl rand -hex 32)
   echo "OD_API_TOKEN=${OD_API_TOKEN}" > ~/open-design/.env
 
@@ -424,17 +437,12 @@ server {
         return 301 \$scheme://\$http_host\$request_uri/;
     }
 
-    # Open Design
+    # Open Design redirects to root /
     location /design/ {
-        proxy_pass http://localhost:${PORT_OPENDESIGN}/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
+        return 301 \$scheme://\$http_host/;
     }
     location /design {
-        return 301 \$scheme://\$http_host\$request_uri/;
+        return 301 \$scheme://\$http_host/;
     }
 
     # Agent-Browser Dashboard
@@ -459,9 +467,60 @@ server {
         proxy_set_header Host \$host;
     }
 
-    # Root → OpenChamber
+    # Route /assets/ requests based on Referer (OpenChamber uses /assets/)
+    location /assets/ {
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
+        if (\$http_referer ~* /chamber/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+        }
+        if (\$http_referer ~* /agent/) {
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+        }
+        proxy_pass \$upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Route _next requests based on Referer to avoid subpath conflict
+    location /_next/ {
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
+        if (\$http_referer ~* /agent/) {
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+        }
+        if (\$http_referer ~* /chamber/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+        }
+        proxy_pass \$upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Route /api/ requests based on Referer to route to correct service
+    location /api/ {
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
+        if (\$http_referer ~* /chamber/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+        }
+        if (\$http_referer ~* /agent/) {
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+        }
+        proxy_pass \$upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Root → Open Design
     location / {
-        proxy_pass http://localhost:${PORT_OPENCHAMBER};
+        proxy_pass http://localhost:${PORT_OPENDESIGN};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -515,7 +574,7 @@ tmux kill-session -t ai-stack 2>/dev/null || true
 agent-browser close 2>/dev/null || true
 pkill -f "opencode serve" 2>/dev/null || true
 pkill -f "openchamber serve" 2>/dev/null || true
-pkill -f "tools-dev run web" 2>/dev/null || true
+pkill -f "tools-dev|tsx|open-design" 2>/dev/null || true
 
 # VPS: restart Nginx
 if [[ "${ENV_TYPE:-}" == "vps" ]]; then
@@ -523,7 +582,7 @@ if [[ "${ENV_TYPE:-}" == "vps" ]]; then
 fi
 
 info "Waiting for ports to clear..."
-for port in "$PORT_OPENCODE" "$PORT_OPENCHAMBER" "$PORT_OPENDESIGN" "$PORT_OPENDESIGN_OC" "$PORT_BROWSER_STREAM" "$PORT_BROWSER_DASH"; do
+for port in "$PORT_OPENCODE" "$PORT_OPENCHAMBER" "$PORT_OPENDESIGN" "$PORT_BROWSER_STREAM" "$PORT_BROWSER_DASH"; do
   for i in {1..10}; do
     if ! ss -tln | grep -q -E ":$port( |$)"; then
       break
@@ -538,9 +597,7 @@ tmux set-environment -g PATH "$PATH" 2>/dev/null || true
 # Start tmux session
 tmux new-session -d -s ai-stack -n 'opencode'
 
-# ── Window 0: Main OpenCode server (stack data dir) ──────────
-# This server shares its DB with OpenChamber. Sessions created
-# here (via openchamber) stay in STACK_DATA_DIR.
+# ── Window 0: Main OpenCode server ──────────────────────────
 tmux send-keys -t ai-stack:0 \
   "mkdir -p ${STACK_DATA_DIR} && XDG_DATA_HOME=${STACK_DATA_DIR} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} opencode serve --port ${PORT_OPENCODE}; read" Enter
 
@@ -551,30 +608,22 @@ sleep 8
 # ── Window 1: OpenChamber (connects to stack opencode) ──────
 tmux new-window -t ai-stack:1 -n 'openchamber'
 tmux send-keys -t ai-stack:1 \
-  "OPENCODE_HOST=http://localhost:${PORT_OPENCODE} openchamber serve --port ${PORT_OPENCHAMBER} --host 0.0.0.0 --ui-password ${MASTER_PASS} --foreground; read" Enter
+  "OPENCODE_SKIP_START=true OPENCODE_SERVER_PASSWORD=${MASTER_PASS} OPENCODE_HOST=http://localhost:${PORT_OPENCODE} openchamber serve --port ${PORT_OPENCHAMBER} --host 0.0.0.0 --ui-password ${MASTER_PASS} --foreground; read" Enter
 
-# ── Window 2: Open Design web app ────────────────────────────
-tmux new-window -t ai-stack:2 -n 'opendesign'
-tmux send-keys -t ai-stack:2 \
-  "cd ~/open-design && OD_API_TOKEN=${OD_API_TOKEN} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458; read" Enter
+# ── Window 2: Open Design web app (shared database and OpenCode) ──────
+  tmux new-window -t ai-stack:2 -n 'opendesign'
+  tmux send-keys -t ai-stack:2 \
+    "cd ~/open-design && export PATH=$HOME/.opencode/bin:$HOME/.npm-global/bin:\$PATH && XDG_DATA_HOME=${STACK_DATA_DIR} OD_DATA_DIR=${STACK_DATA_DIR} OD_API_TOKEN=${OD_API_TOKEN} OD_ALLOWED_ORIGINS=https://${DOMAIN_NAME} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458 --prod; read" Enter
 
-# ── Window 3: Open Design opencode server (ISOLATED data dir)
-# This separate opencode server uses OPENDESIGN_DATA_DIR so
-# any opencode sessions created in the open-design context
-# NEVER appear in OpenChamber.
-tmux new-window -t ai-stack:3 -n 'opencode-od'
-tmux send-keys -t ai-stack:3 \
-  "mkdir -p ${OPENDESIGN_DATA_DIR} && export PATH=$HOME/.local/bin/opencode:$HOME/.npm-global/bin:$PATH && XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode serve --port ${PORT_OPENDESIGN_OC}; read" Enter
-
-# ── Window 4: Agent-Browser ──────────────────────────────────
+# ── Window 3: Agent-Browser ──────────────────────────────────
 # Codespaces = headless only, VPS = headless by default
-tmux new-window -t ai-stack:4 -n 'browser'
-tmux send-keys -t ai-stack:4 \
+tmux new-window -t ai-stack:3 -n 'browser'
+tmux send-keys -t ai-stack:3 \
   "agent-browser close 2>/dev/null || true && sleep 1 && AGENT_BROWSER_STREAM_PORT=${PORT_BROWSER_STREAM} AGENT_BROWSER_ARGS='--no-sandbox,--disable-setuid-sandbox,--headless=new' agent-browser open 'about:blank'; read" Enter
 
-# ── Window 5: Agent-Browser Dashboard ───────────────────────
-tmux new-window -t ai-stack:5 -n 'browser-dash'
-tmux send-keys -t ai-stack:5 \
+# ── Window 4: Agent-Browser Dashboard ───────────────────────
+tmux new-window -t ai-stack:4 -n 'browser-dash'
+tmux send-keys -t ai-stack:4 \
   "sleep 5 && agent-browser dashboard start --port ${PORT_BROWSER_DASH}; read" Enter
 
 # ── Print access links ────────────────────────────────────────
@@ -585,15 +634,15 @@ echo -e "${CYAN}${BOLD}═══════════════════
 echo ""
 
 if [[ "${ENV_TYPE:-}" == "vps" && -n "${DOMAIN_NAME:-}" ]]; then
+  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/"
   echo -e "  ${BOLD}OpenChamber${NC}    → https://${DOMAIN_NAME}/chamber"
-  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/design"
   echo -e "  ${BOLD}Agent-Browser${NC}  → https://${DOMAIN_NAME}/agent"
   echo -e "  ${BOLD}Stream${NC}         → wss://${DOMAIN_NAME}/stream"
   echo ""
   echo -e "  ${YELLOW}Save these links — they never change${NC}"
 else
-  echo -e "  ${BOLD}OpenChamber${NC}    → http://localhost:${PORT_OPENCHAMBER}"
   echo -e "  ${BOLD}Open Design${NC}    → http://localhost:${PORT_OPENDESIGN}"
+  echo -e "  ${BOLD}OpenChamber${NC}    → http://localhost:${PORT_OPENCHAMBER}"
   echo -e "  ${BOLD}Agent-Browser${NC}  → http://localhost:${PORT_BROWSER_DASH}"
   echo -e "  ${BOLD}Stream${NC}         → ws://localhost:${PORT_BROWSER_STREAM}"
 fi
@@ -601,12 +650,8 @@ fi
 echo ""
 echo -e "  ${BOLD}Password:${NC}      ${MASTER_PASS}"
 echo ""
-echo -e "  ${BOLD}Session isolation:${NC}"
-echo -e "  - Main stack (code+chamber) → ${STACK_DATA_DIR}/opencode/opencode.db"
-echo -e "  - Open Design context       → ${OPENDESIGN_DATA_DIR}/opencode/opencode.db"
+echo -e "  ${BOLD}Shared Database:${NC} ${STACK_DATA_DIR}/opencode/opencode.db"
 echo ""
-  echo -e "  ${YELLOW}To use opencode CLI in open-design (isolated):${NC}"
-  echo -e "  XDG_DATA_HOME=${OPENDESIGN_DATA_DIR} opencode ~/open-design"
 
 if [[ "${DOMAIN_IS_DUCKDNS:-}" == "true" ]]; then
   echo -e "  ${YELLOW}DuckDNS auto-update cron set (every 5 min)${NC}"
@@ -614,5 +659,5 @@ fi
 echo ""
 echo -e "  ${BOLD}Attach tmux:${NC}   tmux attach -t ai-stack"
 echo -e "  ${BOLD}Windows:${NC}       Ctrl+B then 0=opencode 1=openchamber"
-echo -e "                         2=opendesign 3=opencode-od 4=browser 5=browser-dash"
+echo -e "                         2=opendesign 3=browser 4=browser-dash"
 echo ""

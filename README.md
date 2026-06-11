@@ -103,11 +103,15 @@ Detects `.ai-stack-installed` flag and skips straight to launch.
 | `--email <email>` | Email address for SSL certificate notifications (Let's Encrypt) |
 | `--skip-duckdns` | No domain at all (local-only) |
 | `--non-interactive` | **Auto-generate** master password (skips password prompt — for CI/CD only) |
+| `--password <password>` | **Set a specific** master password instead of prompting or auto-generating |
 | `--help` | Show help |
 
 ### Examples
 
 ```bash
+# DuckDNS with a custom password (fully non-interactive!)
+bash ai-stack-setup.sh --domain favourakaka.duckdns.org --token abc123def456 --email you@example.com --password mysecretpass
+
 # DuckDNS (free domain) — you will be prompted to enter and confirm your password
 bash ai-stack-setup.sh --domain myproject --token abc123 --email you@example.com
 
@@ -127,8 +131,7 @@ bash ai-stack-setup.sh
 bash ai-stack-setup.sh
 ```
 
-> **Note:** By default you will always be asked to **choose your own master password** and confirm it.
-> Only use `--non-interactive` in automated/CI environments where you can't type interactively.
+> **Note:** By default you will always be asked to **choose your own master password** and confirm it, unless you specify `--password` to set one directly or `--non-interactive` to auto-generate one.
 
 
 ---
@@ -164,6 +167,7 @@ The stack runs **two OpenCode servers** for session isolation:
 **Why two OpenCode servers?**
 - The **main server** (port 4095) shares its database with OpenChamber. Sessions created via the web UI live here.
 - The **isolated server** (port 7457) uses a separate SQLite database in `~/open-design/.data/`. Sessions created while working on Open Design content never appear in OpenChamber.
+- **Next.js & Daemon Isolation:** The Open Design Next.js/daemon application runs with `XDG_DATA_HOME` and `OD_DATA_DIR` set to `~/open-design/.data/`. Any `opencode` CLI tasks spawned directly by the Open Design UI will run in this isolated context, preventing design sessions from leaking into OpenChamber or your main database.
 - No cross-contamination between "coding" context and "design" context.
 
 ### Data Directories
@@ -172,7 +176,7 @@ The stack runs **two OpenCode servers** for session isolation:
 |------|----------|
 | `~/.local/share/ai-stack/opencode/opencode.db` | Main stack sessions |
 | `~/open-design/.data/opencode/opencode.db` | Open Design isolated sessions |
-| `~/.stack-passwords` | Auto-generated config (master password, ports, DuckDNS) |
+| `~/.stack-passwords` | Config storage (master password, ports, DuckDNS) |
 | `~/open-design/.env` | Open Design API token |
 
 ### tmux Layout
