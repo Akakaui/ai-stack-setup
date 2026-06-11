@@ -165,42 +165,37 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
   DOMAIN_IS_DUCKDNS=false
   CERT_EMAIL=""
 
-  if $IS_VPS && [[ "$OPT_SKIP_DUCKDNS" -eq 0 ]]; then
-    # Mode 1: DuckDNS via CLI flags
-    if [[ -n "$OPT_DOMAIN" && -n "$OPT_TOKEN" ]]; then
-      if [[ "$OPT_DOMAIN" == *.* ]]; then
-        DOMAIN_NAME="$OPT_DOMAIN"
-      else
-        DOMAIN_NAME="${OPT_DOMAIN}.duckdns.org"
-      fi
+  if $IS_VPS; then
+    # ── DuckDNS mode: --domain foo --token abc ──────────────────
+    if [[ -n "$OPT_DOMAIN" && -n "$OPT_TOKEN" && "$OPT_DOMAIN" != *.* ]]; then
+      DOMAIN_NAME="${OPT_DOMAIN}.duckdns.org"
       DOMAIN_IS_DUCKDNS=true
       DUCKDNS_TOKEN="$OPT_TOKEN"
-
       info "DuckDNS domain: $DOMAIN_NAME"
-      UPDATE_RESULT=$(curl -s "https://www.duckdns.org/update?domains=${OPT_DOMAIN}&token=${OPT_TOKEN}&ip=")
-      if [[ "$UPDATE_RESULT" == "OK" ]]; then
-        log "DuckDNS updated — $DOMAIN_NAME is live"
-      else
-        warn "DuckDNS update returned: $UPDATE_RESULT — check your token and subdomain"
+      if [[ "$OPT_SKIP_DUCKDNS" -eq 0 ]]; then
+        UPDATE_RESULT=$(curl -s "https://www.duckdns.org/update?domains=${OPT_DOMAIN}&token=${OPT_TOKEN}&ip=")
+        if [[ "$UPDATE_RESULT" == "OK" ]]; then
+          log "DuckDNS updated — $DOMAIN_NAME is live"
+        else
+          warn "DuckDNS update returned: $UPDATE_RESULT — check your token and subdomain"
+        fi
+        CRON_JOB="*/5 * * * * curl -s \"https://www.duckdns.org/update?domains=${OPT_DOMAIN}&token=${OPT_TOKEN}&ip=\" > /dev/null"
+        (crontab -l 2>/dev/null | grep -v "duckdns.org"; echo "$CRON_JOB") | crontab -
+        log "DuckDNS auto-update cron set (every 5 min)"
       fi
 
-      CRON_JOB="*/5 * * * * curl -s \"https://www.duckdns.org/update?domains=${OPT_DOMAIN}&token=${OPT_TOKEN}&ip=\" > /dev/null"
-      (crontab -l 2>/dev/null | grep -v "duckdns.org"; echo "$CRON_JOB") | crontab -
-      log "DuckDNS auto-update cron set (every 5 min)"
-
-    # Mode 2: Custom domain via CLI flag (no token)
+    # ── Custom domain via CLI flag ─────────────────────────────
     elif [[ -n "$OPT_DOMAIN" ]]; then
       DOMAIN_NAME="$OPT_DOMAIN"
-      info "Custom domain: $DOMAIN_NAME (no DuckDNS API)"
+      info "Custom domain: $DOMAIN_NAME"
 
-    # Non-interactive with no domain args
-    elif [[ "$NON_INTERACTIVE" -eq 1 ]]; then
-      warn "No --domain provided — skipping domain setup."
-      warn "  DuckDNS:  bash ai-stack-setup.sh --domain foo --token abc123"
-      warn "  Custom:   bash ai-stack-setup.sh --domain mystack.com"
-      warn "  None:     bash ai-stack-setup.sh --skip-duckdns"
+    # ── Non-interactive / skip-duckdns — no domain ────────────
+    elif [[ "$NON_INTERACTIVE" -eq 1 || "$OPT_SKIP_DUCKDNS" -eq 1 ]]; then
+      warn "No domain provided — local-only mode."
+      warn "  DuckDNS: bash ai-stack-setup.sh --domain foo --token abc123"
+      warn "  Custom:  bash ai-stack-setup.sh --domain mystack.com"
 
-    # Interactive: ask the user
+   # ── Interactive: ask the user ─────────────────────────────
     else
       header "DOMAIN SETUP"
       echo ""
@@ -212,7 +207,6 @@ if [[ ! -f "$INSTALL_DONE_FLAG" ]]; then
       read -rp "  Domain (Enter to skip): " DOMAIN_INPUT </dev/tty
 
       if [[ -n "$DOMAIN_INPUT" ]]; then
-        # Check if it looks like a DuckDNS subdomain (no dots) or a real domain
         if [[ "$DOMAIN_INPUT" == *.* ]]; then
           DOMAIN_NAME="$DOMAIN_INPUT"
           info "Custom domain: $DOMAIN_NAME"
@@ -415,16 +409,28 @@ EOF
   log "Open Design ready (isolated data dir: $OPENDESIGN_DATA_DIR)"
 
   # ── Nginx + SSL (VPS only, requires domain) ────────────────
-  if $IS_VPS && [[ -n "$DOMAIN_NAME" ]] && [[ "$OPT_SKIP_DUCKDNS" -eq 0 ]]; then
+  if $IS_VPS && [[ -n "$DOMAIN_NAME" ]]; then
     header "NGINX + SSL"
 
     # Write Nginx config
+    # Write initial Nginx config (port 80 only — certbot adds SSL)
     sudo tee /etc/nginx/sites-available/ai-stack > /dev/null << NGINX
 server {
     listen 80;
     server_name ${DOMAIN_NAME};
 
-    # OpenChamber (subpath redirection & routing)
+    # Open Design (at /design/)
+    location /design/ {
+        proxy_pass http://localhost:${PORT_OPENDESIGN}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+    location /design { return 301 \$scheme://\$http_host\$request_uri/; }
+
+    # OpenChamber (at /chamber/)
     location /chamber/ {
         proxy_pass http://localhost:${PORT_OPENCHAMBER}/;
         proxy_http_version 1.1;
@@ -433,17 +439,7 @@ server {
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
-    location /chamber {
-        return 301 \$scheme://\$http_host\$request_uri/;
-    }
-
-    # Open Design redirects to root /
-    location /design/ {
-        return 301 \$scheme://\$http_host/;
-    }
-    location /design {
-        return 301 \$scheme://\$http_host/;
-    }
+    location /chamber { return 301 \$scheme://\$http_host\$request_uri/; }
 
     # Agent-Browser Dashboard
     location /agent/ {
@@ -454,9 +450,7 @@ server {
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
-    location /agent {
-        return 301 \$scheme://\$http_host\$request_uri/;
-    }
+    location /agent { return 301 \$scheme://\$http_host\$request_uri/; }
 
     # Agent-Browser Stream (WebSocket)
     location /stream {
@@ -467,48 +461,44 @@ server {
         proxy_set_header Host \$host;
     }
 
-    # Route /assets/ requests based on Referer (OpenChamber uses /assets/)
+    # /assets/ — route by Referer
     location /assets/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
-        if (\$http_referer ~* /chamber/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
+        if (\$http_referer ~* /design/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Open Design
         }
         if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
         }
         proxy_pass \$upstream;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Route _next requests based on Referer to avoid subpath conflict
+    # /_next/ — route by Referer
     location /_next/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN};    # default → Open Design
         if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
         }
         if (\$http_referer ~* /chamber/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};
         }
         proxy_pass \$upstream;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Route /api/ requests based on Referer to route to correct service
+    # /api/ — route by Referer
     location /api/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Default to Open Design
-        if (\$http_referer ~* /chamber/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
+        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
+        if (\$http_referer ~* /design/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Open Design
         }
         if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent Browser
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
         }
         proxy_pass \$upstream;
         proxy_http_version 1.1;
@@ -518,9 +508,9 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Root → Open Design
+    # Root → OpenChamber
     location / {
-        proxy_pass http://localhost:${PORT_OPENDESIGN};
+        proxy_pass http://localhost:${PORT_OPENCHAMBER};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -611,9 +601,11 @@ tmux send-keys -t ai-stack:1 \
   "OPENCODE_SKIP_START=true OPENCODE_SERVER_PASSWORD=${MASTER_PASS} OPENCODE_HOST=http://localhost:${PORT_OPENCODE} openchamber serve --port ${PORT_OPENCHAMBER} --host 0.0.0.0 --ui-password ${MASTER_PASS} --foreground; read" Enter
 
 # ── Window 2: Open Design web app (shared database and OpenCode) ──────
+  OD_ORIGINS="http://localhost:${PORT_OPENDESIGN}"
+  [[ -n "${DOMAIN_NAME:-}" ]] && OD_ORIGINS="${OD_ORIGINS},https://${DOMAIN_NAME}"
   tmux new-window -t ai-stack:2 -n 'opendesign'
   tmux send-keys -t ai-stack:2 \
-    "cd ~/open-design && export PATH=$HOME/.opencode/bin:$HOME/.npm-global/bin:\$PATH && XDG_DATA_HOME=${STACK_DATA_DIR} OD_DATA_DIR=${STACK_DATA_DIR} OD_API_TOKEN=${OD_API_TOKEN} OD_ALLOWED_ORIGINS=https://${DOMAIN_NAME} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458 --prod; read" Enter
+    "cd ~/open-design && export PATH=$HOME/.opencode/bin:$HOME/.npm-global/bin:\$PATH && XDG_DATA_HOME=${STACK_DATA_DIR} OD_DATA_DIR=${STACK_DATA_DIR} OD_API_TOKEN=${OD_API_TOKEN} OD_ALLOWED_ORIGINS=${OD_ORIGINS} OPENCODE_SERVER_PASSWORD=${MASTER_PASS} pnpm tools-dev run web --web-port ${PORT_OPENDESIGN} --daemon-port 7458 --prod; read" Enter
 
 # ── Window 3: Agent-Browser ──────────────────────────────────
 # Codespaces = headless only, VPS = headless by default
@@ -634,7 +626,7 @@ echo -e "${CYAN}${BOLD}═══════════════════
 echo ""
 
 if [[ "${ENV_TYPE:-}" == "vps" && -n "${DOMAIN_NAME:-}" ]]; then
-  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/"
+  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/design"
   echo -e "  ${BOLD}OpenChamber${NC}    → https://${DOMAIN_NAME}/chamber"
   echo -e "  ${BOLD}Agent-Browser${NC}  → https://${DOMAIN_NAME}/agent"
   echo -e "  ${BOLD}Stream${NC}         → wss://${DOMAIN_NAME}/stream"
