@@ -408,7 +408,27 @@ server {
     listen 80;
     server_name ${DOMAIN_NAME};
 
-    # Open Design (at /design/)
+    # ── Open Design (serves at root for proper SPA routing) ──
+    location = / {
+        proxy_pass http://localhost:${PORT_OPENDESIGN};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Open Design SPA client-side routes (pushState navigation paths)
+    location ~* ^/(projects|marketplace|plugins|design-systems|integrations|automations|tasks|onboarding)(/|$) {
+        proxy_pass http://localhost:${PORT_OPENDESIGN};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # /design/ → Open Design (alias for direct access)
     location /design/ {
         proxy_pass http://localhost:${PORT_OPENDESIGN}/;
         proxy_http_version 1.1;
@@ -419,7 +439,7 @@ server {
     }
     location /design { return 301 \$scheme://\$http_host\$request_uri/; }
 
-    # OpenChamber (at /chamber/)
+    # ── OpenChamber (at /chamber/) ──
     location /chamber/ {
         proxy_pass http://localhost:${PORT_OPENCHAMBER}/;
         proxy_http_version 1.1;
@@ -430,7 +450,7 @@ server {
     }
     location /chamber { return 301 \$scheme://\$http_host\$request_uri/; }
 
-    # Agent-Browser Dashboard
+    # ── Agent-Browser Dashboard ──
     location /agent/ {
         proxy_pass http://localhost:${PORT_BROWSER_DASH}/;
         proxy_http_version 1.1;
@@ -450,14 +470,14 @@ server {
         proxy_set_header Host \$host;
     }
 
-    # /assets/ — route by Referer
+    # ── /assets/ — route by Referer ──
     location /assets/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
-        if (\$http_referer ~* /design/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Open Design
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN};   # default → Open Design
+        if (\$http_referer ~* /chamber/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
         }
         if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent-Browser
         }
         proxy_pass \$upstream;
         proxy_http_version 1.1;
@@ -465,29 +485,24 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # /_next/ — route by Referer
+    # /_next/ — Open Design owns this (only it uses Next.js)
     location /_next/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN};    # default → Open Design
-        if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
-        }
-        if (\$http_referer ~* /chamber/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};
-        }
-        proxy_pass \$upstream;
+        proxy_pass http://localhost:${PORT_OPENDESIGN};
         proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_cache_bypass \$http_upgrade;
     }
 
     # /api/ — route by Referer
     location /api/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
-        if (\$http_referer ~* /design/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENDESIGN}; # Open Design
+        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN};   # default → Open Design
+        if (\$http_referer ~* /chamber/) {
+            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
         }
         if (\$http_referer ~* /agent/) {
-            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH};
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent-Browser
         }
         proxy_pass \$upstream;
         proxy_http_version 1.1;
@@ -497,9 +512,9 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Root → OpenChamber
+    # Fallback → Open Design
     location / {
-        proxy_pass http://localhost:${PORT_OPENCHAMBER};
+        proxy_pass http://localhost:${PORT_OPENDESIGN};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -637,7 +652,7 @@ echo -e "${CYAN}${BOLD}═══════════════════
 echo ""
 
 if [[ "${ENV_TYPE:-}" == "vps" && -n "${DOMAIN_NAME:-}" ]]; then
-  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/design"
+  echo -e "  ${BOLD}Open Design${NC}    → https://${DOMAIN_NAME}/"
   echo -e "  ${BOLD}OpenChamber${NC}    → https://${DOMAIN_NAME}/chamber"
   echo -e "  ${BOLD}Agent-Browser${NC}  → https://${DOMAIN_NAME}/agent"
   echo -e "  ${BOLD}Stream${NC}         → wss://${DOMAIN_NAME}/stream"
