@@ -522,6 +522,25 @@ NGINX
     log "SSL configured"
   fi
 
+  # ── Restore bundled skills ────────────────────────────────
+  # >>> REMOVE LATER: This section bundles skills in the repo for
+  #     first-time install. Once skills are installed from source
+  #     repos (skills-lock.json), delete this block and the
+  #     bundled-* files from the repo.
+  BUNDLE_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "$HOME/ai-stack-setup")"
+  if [[ -f "$BUNDLE_DIR/bundled-skills.tar.gz" ]]; then
+    mkdir -p ~/.agents/skills
+    tar -xzf "$BUNDLE_DIR/bundled-skills.tar.gz" -C ~/.agents
+    cp "$BUNDLE_DIR/bundled-skill-lock.json" ~/.agents/.skill-lock.json
+    log "Bundled skills restored to ~/.agents/skills/ (remove this block later)"
+  fi
+  if [[ -f "$BUNDLE_DIR/bundled-od-content-pipeline.md" ]]; then
+    mkdir -p ~/open-design/skills/content-pipeline
+    cp "$BUNDLE_DIR/bundled-od-content-pipeline.md" ~/open-design/skills/content-pipeline/SKILL.md
+    log "Open Design content-pipeline skill restored (remove this block later)"
+  fi
+  # <<< END REMOVE LATER
+
   # ── Mark install complete ──────────────────────────────────
   touch "$INSTALL_DONE_FLAG"
   header "INSTALL COMPLETE"
