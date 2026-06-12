@@ -34,10 +34,10 @@ See [Quick Start](#quick-start) for all options (DuckDNS, custom domain, etc).
 | **OpenCode** | AI coding assistant server | 4095 |
 | **OpenChamber** | Web UI for OpenCode | 3000 |
 | **Open Design** | Local-first design product (Next.js 16) | 7456 |
-| **OpenCode (isolated)** | Separate session DB for Open Design context | 7457 |
 | **Agent-Browser** | Browser automation daemon | 9223 |
 | **Agent-Browser Dashboard** | Live browser view + controls | 4848 |
 | **Nginx + SSL** | Reverse proxy + Let's Encrypt (VPS only) | 80/443 |
+| **Skills** | 50+ agent skills (marketing, design, video, writing, etc.) | `~/.agents/skills/` |
 
 ---
 
@@ -358,7 +358,6 @@ bash ai-stack-setup.sh
 | 4095 | OpenCode (main) | `PORT_OPENCODE` | internal |
 | 3000 | OpenChamber | `PORT_OPENCHAMBER` | `/chamber`, `/` |
 | 7456 | Open Design web | `PORT_OPENDESIGN` | `/design` |
-| 7457 | OpenCode (OD isolated) | `PORT_OPENDESIGN_OC` | internal |
 | 9223 | Agent-Browser stream | `PORT_BROWSER_STREAM` | `/stream` (WS) |
 | 4848 | Agent-Browser dashboard | `PORT_BROWSER_DASH` | `/agent` |
 

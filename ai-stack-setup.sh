@@ -101,13 +101,11 @@ done
 PORT_OPENCODE=4095
 PORT_OPENCHAMBER=3000
 PORT_OPENDESIGN=7456
-PORT_OPENDESIGN_OC=7457   # separate opencode for open design sessions
 PORT_BROWSER_STREAM=9223
 PORT_BROWSER_DASH=4848
 
 # ── Session isolation: separate data directories ─────────────
 STACK_DATA_DIR="$HOME/.local/share/ai-stack"
-OPENDESIGN_DATA_DIR="$HOME/open-design/.data"
 
 # ── PATH setup ────────────────────────────────────────────────
 export PNPM_HOME="$HOME/.local/share/pnpm"
@@ -250,7 +248,6 @@ MASTER_PASS=${MASTER_PASS}
 PORT_OPENCODE=${PORT_OPENCODE}
 PORT_OPENCHAMBER=${PORT_OPENCHAMBER}
 PORT_OPENDESIGN=${PORT_OPENDESIGN}
-PORT_OPENDESIGN_OC=${PORT_OPENDESIGN_OC}
 PORT_BROWSER_STREAM=${PORT_BROWSER_STREAM}
 PORT_BROWSER_DASH=${PORT_BROWSER_DASH}
 ENV_TYPE=${ENV_TYPE}
@@ -258,7 +255,6 @@ DOMAIN_NAME=${DOMAIN_NAME}
 DOMAIN_IS_DUCKDNS=${DOMAIN_IS_DUCKDNS}
 CERT_EMAIL=${CERT_EMAIL}
 STACK_DATA_DIR=${STACK_DATA_DIR}
-OPENDESIGN_DATA_DIR=${OPENDESIGN_DATA_DIR}
 EOF
   chmod 600 ~/.stack-passwords
   log "Config saved to ~/.stack-passwords"
@@ -400,13 +396,6 @@ EOF
 
   OD_API_TOKEN=$(openssl rand -hex 32)
   echo "OD_API_TOKEN=${OD_API_TOKEN}" > ~/open-design/.env
-
-  # ── Create separate data dir for open-design context ───────
-  mkdir -p "$OPENDESIGN_DATA_DIR"
-  mkdir -p "$OPENDESIGN_DATA_DIR/opencode"
-  cp ~/.config/opencode/opencode.json "$OPENDESIGN_DATA_DIR/opencode/opencode.json"
-  sed -i "s/\"port\": ${PORT_OPENCODE}/\"port\": ${PORT_OPENDESIGN_OC}/" "$OPENDESIGN_DATA_DIR/opencode/opencode.json"
-  log "Open Design ready (isolated data dir: $OPENDESIGN_DATA_DIR)"
 
   # ── Nginx + SSL (VPS only, requires domain) ────────────────
   if $IS_VPS && [[ -n "$DOMAIN_NAME" ]]; then
