@@ -63,7 +63,6 @@ OPT_TOKEN=""
 OPT_SKIP_DUCKDNS=0
 OPT_EMAIL=""
 OPT_PASSWORD=""
-OPT_GITHUB_TOKEN=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,8 +76,6 @@ while [ $# -gt 0 ]; do
     --email=*) OPT_EMAIL="${1#--email=}" ;;
     --password) shift; OPT_PASSWORD="$1" ;;
     --password=*) OPT_PASSWORD="${1#--password=}" ;;
-    --github-token) shift; OPT_GITHUB_TOKEN="$1" ;;
-    --github-token=*) OPT_GITHUB_TOKEN="${1#--github-token=}" ;;
     --help|-h)
       echo "Usage: bash ai-stack-setup.sh [options]"
       echo ""
@@ -87,13 +84,12 @@ while [ $# -gt 0 ]; do
       echo "  --skip-duckdns                 No domain at all (local-only)"
       echo "  --non-interactive              Auto-generate password"
       echo "  --password <password>          Set a specific master password"
-      echo "  --github-token <token>         GitHub token for restoring skills from private repo"
       echo "  --help                         Show this help"
       echo ""
       echo "Examples:"
-      echo "  bash ai-stack-setup.sh --domain myproject --token abc123 --github-token ghp_...   # DuckDNS + skills restore"
-      echo "  bash ai-stack-setup.sh --domain mystack.com --github-token ghp_...                # custom domain + skills"
-      echo "  bash ai-stack-setup.sh --skip-duckdns --github-token ghp_...                      # local-only + skills"
+      echo "  bash ai-stack-setup.sh --domain myproject --token abc123   # DuckDNS"
+      echo "  bash ai-stack-setup.sh --domain mystack.com                # custom domain"
+      echo "  bash ai-stack-setup.sh --skip-duckdns                      # no domain"
       exit 0
       ;;
     *) warn "Unknown argument: $1 (ignored)" ;;
@@ -526,14 +522,14 @@ NGINX
     log "SSL configured"
   fi
 
-  # ── Restore skills from private repo ──────────────────────
-  # >>> REMOVE LATER: Restores the skills bundle from a private
-  #     GitHub repo. Once skills are handled by the main install
-  #     process (npx skills add), delete this block.
-  if [[ -n "${OPT_GITHUB_TOKEN:-}" ]]; then
+  # ── Restore skills from private repo via gh CLI ───────────
+  # >>> REMOVE LATER: Uses gh CLI (already authenticated) to clone the
+  #     private skills repo. Delete this block when skills are
+  #     handled by the main install process instead.
+  if command -v gh &>/dev/null && gh auth status 2>/dev/null | grep -q "Active account"; then
     SKILLS_REPO_DIR=$(mktemp -d)
-    info "Cloning skills from private repo..."
-    if git clone --depth=1 "https://Akakaui:${OPT_GITHUB_TOKEN}@github.com/Akakaui/ai-stack-skills.git" "$SKILLS_REPO_DIR" 2>/dev/null; then
+    info "Cloning skills from private repo via gh..."
+    if gh repo clone Akakaui/ai-stack-skills "$SKILLS_REPO_DIR" -- --depth=1 2>/dev/null; then
       mkdir -p ~/.agents/skills
       cp -r "$SKILLS_REPO_DIR/skills/"* ~/.agents/skills/
       cp "$SKILLS_REPO_DIR/.skill-lock.json" ~/.agents/.skill-lock.json
@@ -543,7 +539,7 @@ NGINX
       log "Skills restored from private repo (remove this block later)"
     else
       rm -rf "$SKILLS_REPO_DIR"
-      warn "Failed to clone skills repo — check your --github-token"
+      warn "gh clone failed — check gh auth status"
     fi
   fi
   # <<< END REMOVE LATER
