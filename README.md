@@ -372,31 +372,6 @@ bash ai-stack-setup.sh
 | `.gitignore` | Git ignore rules |
 | `assets/` | Screenshots |
 
----
-
-## Unified Desktop & VPS Apps
-
-One launcher that runs both OpenCode and OpenChamber for you — no manual configuration, no running two separate things. Just install and open.
-
-```
- User opens the app
-        │
-        ▼
- ┌──────────────────┐
- │  AI Stack App    │  ← single download (PC) or single command (VPS)
- │                  │
- │  starts both:    │
- │  ┌────────────┐  │
- │  │  OpenCode  │  │  ← AI agent backend (port 4095, internal only)
- │  └────────────┘  │
- │  ┌────────────┐  │
- │  │OpenChamber │  │  ← Web UI (port 3000, shown in window / browser)
- │  └────────────┘  │
- └──────────────────┘
-```
-
----
-
 ### 1. Unified PC Desktop App (Windows / macOS / Linux)
 
 #### How to run/test locally from source:
