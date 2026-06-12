@@ -470,12 +470,9 @@ server {
         proxy_set_header Host \$host;
     }
 
-    # ── /assets/ — route by Referer ──
+    # ── /assets/ — route by Referer (default OpenChamber) ──
     location /assets/ {
-        set \$upstream http://127.0.0.1:${PORT_OPENDESIGN};   # default → Open Design
-        if (\$http_referer ~* /chamber/) {
-            set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER}; # OpenChamber
-        }
+        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
         if (\$http_referer ~* /agent/) {
             set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent-Browser
         }
@@ -488,6 +485,20 @@ server {
     # /_next/ — Open Design owns this (only it uses Next.js)
     location /_next/ {
         proxy_pass http://localhost:${PORT_OPENDESIGN};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # /auth/ → OpenChamber only (needed for POST /auth/url-token)
+    location /auth/ {
+        set \$upstream http://127.0.0.1:${PORT_OPENCHAMBER};   # default → OpenChamber
+        if (\$http_referer ~* /agent/) {
+            set \$upstream http://127.0.0.1:${PORT_BROWSER_DASH}; # Agent-Browser
+        }
+        proxy_pass \$upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -537,27 +548,7 @@ NGINX
     log "SSL configured"
   fi
 
-  # ── Restore skills from private repo via gh CLI ───────────
-  # >>> REMOVE LATER: Uses gh CLI (already authenticated) to clone the
-  #     private skills repo. Delete this block when skills are
-  #     handled by the main install process instead.
-  if command -v gh &>/dev/null && gh auth status 2>/dev/null | grep -q "Active account"; then
-    SKILLS_REPO_DIR=$(mktemp -d)
-    info "Cloning skills from private repo via gh..."
-    if gh repo clone Akakaui/ai-stack-skills "$SKILLS_REPO_DIR" -- --depth=1 2>/dev/null; then
-      mkdir -p ~/.agents/skills
-      cp -r "$SKILLS_REPO_DIR/skills/"* ~/.agents/skills/
-      cp "$SKILLS_REPO_DIR/.skill-lock.json" ~/.agents/.skill-lock.json
-      mkdir -p ~/open-design/skills/content-pipeline
-      cp "$SKILLS_REPO_DIR/od-content-pipeline/SKILL.md" ~/open-design/skills/content-pipeline/SKILL.md
-      rm -rf "$SKILLS_REPO_DIR"
-      log "Skills restored from private repo (remove this block later)"
-    else
-      rm -rf "$SKILLS_REPO_DIR"
-      warn "gh clone failed — check gh auth status"
-    fi
-  fi
-  # <<< END REMOVE LATER
+
 
   # ── Mark install complete ──────────────────────────────────
   touch "$INSTALL_DONE_FLAG"
