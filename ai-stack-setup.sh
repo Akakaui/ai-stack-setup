@@ -63,6 +63,7 @@ OPT_TOKEN=""
 OPT_SKIP_DUCKDNS=0
 OPT_EMAIL=""
 OPT_PASSWORD=""
+OPT_GITHUB_TOKEN=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -76,6 +77,8 @@ while [ $# -gt 0 ]; do
     --email=*) OPT_EMAIL="${1#--email=}" ;;
     --password) shift; OPT_PASSWORD="$1" ;;
     --password=*) OPT_PASSWORD="${1#--password=}" ;;
+    --github-token) shift; OPT_GITHUB_TOKEN="$1" ;;
+    --github-token=*) OPT_GITHUB_TOKEN="${1#--github-token=}" ;;
     --help|-h)
       echo "Usage: bash ai-stack-setup.sh [options]"
       echo ""
@@ -84,12 +87,13 @@ while [ $# -gt 0 ]; do
       echo "  --skip-duckdns                 No domain at all (local-only)"
       echo "  --non-interactive              Auto-generate password"
       echo "  --password <password>          Set a specific master password"
+      echo "  --github-token <token>         GitHub token for restoring skills from private repo"
       echo "  --help                         Show this help"
       echo ""
       echo "Examples:"
-      echo "  bash ai-stack-setup.sh --domain myproject --token abc123   # DuckDNS"
-      echo "  bash ai-stack-setup.sh --domain mystack.com                # custom domain"
-      echo "  bash ai-stack-setup.sh --skip-duckdns                      # no domain"
+      echo "  bash ai-stack-setup.sh --domain myproject --token abc123 --github-token ghp_...   # DuckDNS + skills restore"
+      echo "  bash ai-stack-setup.sh --domain mystack.com --github-token ghp_...                # custom domain + skills"
+      echo "  bash ai-stack-setup.sh --skip-duckdns --github-token ghp_...                      # local-only + skills"
       exit 0
       ;;
     *) warn "Unknown argument: $1 (ignored)" ;;
@@ -522,22 +526,25 @@ NGINX
     log "SSL configured"
   fi
 
-  # ── Restore bundled skills ────────────────────────────────
-  # >>> REMOVE LATER: This section bundles skills in the repo for
-  #     first-time install. Once skills are installed from source
-  #     repos (skills-lock.json), delete this block and the
-  #     bundled-* files from the repo.
-  BUNDLE_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "$HOME/ai-stack-setup")"
-  if [[ -f "$BUNDLE_DIR/bundled-skills.tar.gz" ]]; then
-    mkdir -p ~/.agents/skills
-    tar -xzf "$BUNDLE_DIR/bundled-skills.tar.gz" -C ~/.agents
-    cp "$BUNDLE_DIR/bundled-skill-lock.json" ~/.agents/.skill-lock.json
-    log "Bundled skills restored to ~/.agents/skills/ (remove this block later)"
-  fi
-  if [[ -f "$BUNDLE_DIR/bundled-od-content-pipeline.md" ]]; then
-    mkdir -p ~/open-design/skills/content-pipeline
-    cp "$BUNDLE_DIR/bundled-od-content-pipeline.md" ~/open-design/skills/content-pipeline/SKILL.md
-    log "Open Design content-pipeline skill restored (remove this block later)"
+  # ── Restore skills from private repo ──────────────────────
+  # >>> REMOVE LATER: Restores the skills bundle from a private
+  #     GitHub repo. Once skills are handled by the main install
+  #     process (npx skills add), delete this block.
+  if [[ -n "${OPT_GITHUB_TOKEN:-}" ]]; then
+    SKILLS_REPO_DIR=$(mktemp -d)
+    info "Cloning skills from private repo..."
+    if git clone --depth=1 "https://Akakaui:${OPT_GITHUB_TOKEN}@github.com/Akakaui/ai-stack-skills.git" "$SKILLS_REPO_DIR" 2>/dev/null; then
+      mkdir -p ~/.agents/skills
+      cp -r "$SKILLS_REPO_DIR/skills/"* ~/.agents/skills/
+      cp "$SKILLS_REPO_DIR/.skill-lock.json" ~/.agents/.skill-lock.json
+      mkdir -p ~/open-design/skills/content-pipeline
+      cp "$SKILLS_REPO_DIR/od-content-pipeline/SKILL.md" ~/open-design/skills/content-pipeline/SKILL.md
+      rm -rf "$SKILLS_REPO_DIR"
+      log "Skills restored from private repo (remove this block later)"
+    else
+      rm -rf "$SKILLS_REPO_DIR"
+      warn "Failed to clone skills repo — check your --github-token"
+    fi
   fi
   # <<< END REMOVE LATER
 
