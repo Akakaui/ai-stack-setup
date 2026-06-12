@@ -375,7 +375,7 @@ EOF
   if [[ ! -d ~/open-design/node_modules ]]; then
     info "Installing Open Design dependencies (2-3 min)..."
     cd ~/open-design
-    corepack enable 2>/dev/null || true
+    sudo corepack enable 2>/dev/null || true
     pnpm install --silent 2>/dev/null || true
     cd ~
   fi
