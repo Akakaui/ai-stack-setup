@@ -3,3 +3,6 @@ node_modules/
 *.log
 .DS_Store
 .agents/
+.opex/config/user.config.md
+storage/
+.qdrant-initialized
